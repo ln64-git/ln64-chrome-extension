@@ -1,6 +1,6 @@
 # Chrome Extension TypeScript Starter
 
-![build](https://github.com/chibat/chrome-extension-typescript-starter/workflows/build/badge.svg)
+![build](https://github.com/chibat/ln64-chrome-extension/workflows/build/badge.svg)
 
 Chrome Extension, TypeScript and Visual Studio Code
 

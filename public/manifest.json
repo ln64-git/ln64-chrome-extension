@@ -17,9 +17,11 @@
     "service_worker": "js/background.js"
   },
   "permissions": [
+    "scripting",
     "storage"
   ],
   "host_permissions": [
-    "<all_urls>"
+    "<all_urls>",
+    "http://localhost:3100/"
   ]
 }

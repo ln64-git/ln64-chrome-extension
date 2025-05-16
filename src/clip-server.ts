@@ -1,5 +1,12 @@
 import express from "express";
-import { pipeline } from "@xenova/transformers";
+import * as Canvas from "canvas";
+import { env, pipeline } from "@xenova/transformers";
+
+(env as any).Canvas = {
+  Canvas: Canvas.Canvas,
+  Image: Canvas.Image,
+  ImageData: Canvas.ImageData,
+};
 
 const app = express();
 app.use(express.json({ limit: "50mb" }));
@@ -10,6 +17,25 @@ let textEmbedder: any;
 (async () => {
   imageEmbedder = await pipeline("image-feature-extraction", "Xenova/clip-vit-base-patch32", { quantized: true });
   textEmbedder = await pipeline("feature-extraction", "Xenova/clip-vit-base-patch32", { quantized: true });
+
+  try {
+    const testImage = await Canvas.loadImage("https://upload.wikimedia.org/wikipedia/commons/thumb/3/3f/JPEG_example_flower.jpg/320px-JPEG_example_flower.jpg");
+    const canvas = Canvas.createCanvas(testImage.width, testImage.height);
+    const ctx = canvas.getContext("2d");
+    ctx.drawImage(testImage, 0, 0);
+    const buffer = canvas.toBuffer("image/png");
+    const blob = new Blob([buffer], { type: "image/png" });
+
+    const testResult = await imageEmbedder(blob, {
+      pooling: "mean",
+      normalize: true,
+    });
+
+    console.log("✅ TEST embedding length:", testResult.data.length);
+  } catch (e) {
+    console.error("❌ TEST image embedding failed:", e);
+  }
+
   console.log("✅ CLIP server is ready.");
 })();
 
@@ -20,32 +46,48 @@ function cosineSimilarity(a: Float32Array, b: Float32Array): number {
   return dot / (normA * normB);
 }
 
-app.post("/search", async (req, res) => {
-  const { query, images } = req.body;
+app.post("/search", (req, res) => {
+  (async () => {
+    try {
+      const { query, images } = req.body;
 
-  try {
-    const queryEmbed = new Float32Array(
-      (await textEmbedder(query, { pooling: "mean", normalize: true })).data
-    );
+      if (!query || !Array.isArray(images)) {
+        return res.status(400).json({ results: [] });
+      }
 
-    const results = await Promise.all(
-      images.map(async (img: { name: string; src: string }) => {
-        try {
-          const blob = await fetch(img.src).then((r) => r.blob());
-          const result = await imageEmbedder(blob, { pooling: "mean", normalize: true });
-          return { ...img, score: cosineSimilarity(new Float32Array(result.data), queryEmbed) };
-        } catch {
-          return { ...img, score: 0 };
-        }
-      })
-    );
+      const queryEmbed = new Float32Array(
+        (await textEmbedder(query, { pooling: "mean", normalize: true })).data
+      );
 
-    const top = results.sort((a, b) => b.score - a.score).slice(0, 3);
-    res.json({ results: top });
-  } catch (err) {
-    console.error("❌ Server error:", err);
-    res.status(500).json({ error: "Search failed." });
-  }
+      const results = await Promise.all(
+        images.map(async (img) => {
+          try {
+            const image = await Canvas.loadImage(img.src);
+            const embedding = await imageEmbedder(image, {
+              pooling: "mean",
+              normalize: true,
+            });
+
+            const score = cosineSimilarity(
+              new Float32Array(embedding.data),
+              queryEmbed
+            );
+
+            return { ...img, score };
+          } catch (err) {
+            console.warn("⚠️ Failed to process image:", img.name, err);
+            return { ...img, score: 0 };
+          }
+        })
+      );
+
+      const top = results.sort((a, b) => b.score - a.score).slice(0, 3);
+      res.json({ results: top });
+    } catch (err) {
+      console.error("❌ Server error:", err);
+      res.status(500).json({ results: [] });
+    }
+  })();
 });
 
 app.listen(3100, () => {

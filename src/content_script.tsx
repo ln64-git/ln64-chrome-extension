@@ -42,9 +42,15 @@ function startSemanticSearchUI() {
     const images = collectImages();
 
     chrome.runtime.sendMessage({ type: "RUN_QUERY", query, images }, (response) => {
+      if (!response || !Array.isArray(response.results)) {
+        console.warn("⚠️ Invalid response from background:", response);
+        return;
+      }
+
       console.log("🔍 Found results", response);
       highlightImages(response.results);
     });
+
   };
 
   document.getElementById("runQuery")?.addEventListener("click", runQuery);
